@@ -1,0 +1,7 @@
+[package]
+name = "toolslib"
+version = "1.0.0"
+description = "演示依赖版本冲突（依赖 utils 1.1.0）"
+
+[dependencies]
+utils = "1.1.0"

@@ -1,0 +1,7 @@
+[package]
+name = "logkit"
+version = "1.0.0"
+description = "极简日志（演示传递依赖：依赖 utils 1.0.0）"
+
+[dependencies]
+utils = "1.0.0"
