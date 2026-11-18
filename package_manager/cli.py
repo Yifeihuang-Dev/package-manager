@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from . import pkging, project, registry, signing, sources
+from . import cloud, pkging, project, registry, signing, sources
 from .errors import PkmError
 
 
@@ -50,6 +50,10 @@ def _cmd_registry(args):
         registry.git_pull()
 
 
+def _cmd_use(args):
+    cloud.use(args.spec)
+
+
 def _cmd_source(args):
     if args.op == "add":
         if not args.name or not args.url:
@@ -89,6 +93,10 @@ def main(argv=None) -> int:
                    help="name, name@version, path to a .pkm file, or an http(s) URL; omit to install everything in pkm.toml")
     p.add_argument("--force", action="store_true", help="overwrite existing directories of the same name")
     p.set_defaults(func=_cmd_install)
+
+    p = sub.add_parser("use", help="cloud mode: stream a package into memory at run time (code never lands on disk)")
+    p.add_argument("spec", help="name or name@version; pairs with: python -m package_manager.cloud")
+    p.set_defaults(func=_cmd_use)
 
     p = sub.add_parser("source", help="manage remote package sources (cloud registries): add | list | remove")
     p.add_argument("op", choices=["add", "list", "remove"])
