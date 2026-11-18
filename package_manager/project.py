@@ -133,6 +133,31 @@ def _is_path_or_url(spec: str) -> bool:
     return spec.startswith(("http://", "https://")) or spec.endswith(".pkm")
 
 
+def verify_only(path) -> None:
+    """Review gate: fully verify a .pkm and report its contents WITHOUT installing
+    or publishing — built for reviewing community PRs before merge."""
+    import hashlib
+
+    p = Path(path).expanduser().resolve()
+    if not p.exists():
+        raise PkmError(f"file not found: {path}")
+    _verify_package(p, entry=None)
+    data = pkging.tar_files(p)
+    mf = parse_manifest(data["pkm.toml"].decode())
+    sig_b64, kid, _ = pkging.parse_signature(data["SIGNATURE"].decode())
+    sha = hashlib.sha256(p.read_bytes()).hexdigest()
+    files = sorted(k for k in data if k not in ("SIGNATURE", "pkm.toml"))
+    print("✓ signature verification passed (nothing was installed or published)")
+    print(f"  package:  {mf.name}@{mf.version}")
+    print(f"  sha256:   {sha}")
+    print(f"  key_id:   {kid}")
+    deps = ", ".join(f"{k}={v}" for k, v in sorted(mf.dependencies.items())) or "(none)"
+    print(f"  depends:  {deps}")
+    print(f"  files ({len(files)}):")
+    for f in files:
+        print(f"    {f}")
+
+
 def install(spec=None, force: bool = False) -> None:
     root = _root()
 

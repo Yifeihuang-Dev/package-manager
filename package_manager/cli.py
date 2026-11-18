@@ -22,6 +22,9 @@ def _cmd_build(args):
 
 
 def _cmd_publish(args):
+    if args.verify_only:
+        project.verify_only(args.file)
+        return
     registry.publish(Path(args.file).resolve())
 
 
@@ -50,8 +53,21 @@ def _cmd_registry(args):
         registry.git_pull()
 
 
+def _cmd_search(args):
+    registry.search(args.query)
+
+
+def _cmd_trust(args):
+    if args.op == "list":
+        signing.trust_list()
+    elif args.op == "remove":
+        if not args.key_id:
+            raise PkmError("usage: pkm trust remove <key_id>")
+        signing.trust_remove(args.key_id)
+
+
 def _cmd_use(args):
-    cloud.use(args.spec)
+    cloud.use(args.spec, latest=args.latest)
 
 
 def _cmd_source(args):
@@ -86,7 +102,18 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("publish", help="publish a .pkm to the local registry")
     p.add_argument("file", help="path to a .pkm file")
+    p.add_argument("--verify-only", action="store_true",
+                   help="verify and report without storing (for reviewing community PRs)")
     p.set_defaults(func=_cmd_publish)
+
+    p = sub.add_parser("search", help="search packages by name across the local registry and remote sources")
+    p.add_argument("query", help="name substring to look for")
+    p.set_defaults(func=_cmd_search)
+
+    p = sub.add_parser("trust", help="manage trusted publisher keys (TOFU store): list | remove")
+    p.add_argument("op", choices=["list", "remove"])
+    p.add_argument("key_id", nargs="?", default=None, help="key_id to revoke (for remove)")
+    p.set_defaults(func=_cmd_trust)
 
     p = sub.add_parser("install", help="install a package: verify signature -> extract into project root -> importable")
     p.add_argument("spec", nargs="?", default=None,
@@ -96,6 +123,7 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("use", help="cloud mode: stream a package into memory at run time (code never lands on disk)")
     p.add_argument("spec", help="name or name@version; pairs with: python -m package_manager.cloud")
+    p.add_argument("--latest", action="store_true", help="follow the newest version on every run (default: pin)")
     p.set_defaults(func=_cmd_use)
 
     p = sub.add_parser("source", help="manage remote package sources (cloud registries): add | list | remove")

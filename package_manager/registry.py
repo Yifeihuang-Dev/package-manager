@@ -72,6 +72,36 @@ def _file_sha(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def search(query: str) -> None:
+    """Search local registry + all configured remote sources by package-name substring."""
+    q = query.lower()
+    results = {}  # name -> (versions, sources)
+    idx = load_json(REGISTRY_INDEX, {})
+    for name, versions in idx.get("packages", {}).items():
+        if q in name.lower():
+            results[name] = (sorted(versions), {"local"})
+    for sname, base in sorted(sources.load_sources().items()):
+        try:
+            ridx = sources.fetch_json(f"{base}/index.json")
+        except PkmError:
+            print(f"! source {sname} unreachable, skipped")
+            continue
+        for name, versions in ridx.get("packages", {}).items():
+            if q in name.lower():
+                if name in results:
+                    results[name][1].add(sname)
+                else:
+                    results[name] = (sorted(versions), {sname})
+    if not results:
+        print(f"(no match) nothing found for '{query}'")
+        return
+    print(f"{len(results)} package(s) matching '{query}':")
+    for name, (versions, where) in sorted(results.items()):
+        src = "+".join(sorted(where))
+        print(f"  {name}  versions: {', '.join(versions)}  [{src}]")
+        print(f"    install: pkm install {name}")
+
+
 def get(name: str, version=None):
     """Returns (entry, file path). version=None picks the latest.
 

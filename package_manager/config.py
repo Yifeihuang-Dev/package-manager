@@ -10,8 +10,9 @@ REGISTRY_INDEX = REGISTRY_DIR / "index.json"
 KNOWN_KEYS_FILE = PKM_HOME / "known_keys.json"
 SOURCES_FILE = PKM_HOME / "sources.json"
 REMOTE_CACHE = PKM_HOME / "remote-cache"
+CLOUD_CACHE = PKM_HOME / "cloud-cache"
 
 
 def ensure_dirs() -> None:
-    for d in (PKM_HOME, KEYS_DIR, REGISTRY_PACKAGES, REMOTE_CACHE):
+    for d in (PKM_HOME, KEYS_DIR, REGISTRY_PACKAGES, REMOTE_CACHE, CLOUD_CACHE):
         d.mkdir(parents=True, exist_ok=True)

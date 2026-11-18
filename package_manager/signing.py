@@ -108,6 +108,44 @@ def keys_list() -> None:
         print(f"{name:<10} key_id={key_id(pub)}  fingerprint={hashlib.sha256(pub).hexdigest()}")
 
 
+def trust_list() -> None:
+    """Visualize the TOFU trusted store: every publisher you have ever accepted."""
+    known = load_json(KNOWN_KEYS_FILE, {})
+    if not known:
+        print("(empty) no trusted publisher keys yet — they appear here after the first [y] in TOFU")
+        return
+    my_kid = None
+    if _key_file().exists():
+        try:
+            my_kid = key_id(ed25519.public_key(load_seed()))
+        except PkmError:
+            pass
+    # which local packages each key has signed (best-effort annotation)
+    owners = {}
+    idx = load_json(REGISTRY_INDEX, {})
+    for pkg, versions in idx.get("packages", {}).items():
+        for ver, entry in versions.items():
+            kid = entry.get("key_id")
+            if kid:
+                owners.setdefault(kid, set()).add(f"{pkg}@{ver}")
+    print(f"{len(known)} trusted publisher key(s):")
+    for kid, pub in sorted(known.items()):
+        mark = "   <- your own key" if kid == my_kid else ""
+        print(f"  {kid}  {hashlib.sha256(base64.b64decode(pub)).hexdigest()}{mark}")
+        pkgs = ", ".join(sorted(owners.get(kid, []))) or "(no local packages signed by this key)"
+        print(f"    signed: {pkgs}")
+
+
+def trust_remove(kid: str) -> None:
+    """Revoke trust in a publisher key (e.g. after key compromise / publisher change)."""
+    known = load_json(KNOWN_KEYS_FILE, {})
+    if kid not in known:
+        raise PkmError(f"key {kid} is not in the trusted list (see: pkm trust list)")
+    del known[kid]
+    save_json(KNOWN_KEYS_FILE, known)
+    print(f"✓ key {kid} revoked — its packages will now fail verification until you re-trust it")
+
+
 def pubkey_b64_for(kid: str) -> str:
     """Find the public key for a key_id: local key first, then the trusted list."""
     pub = lookup_pubkey(kid, include_local_key=True)

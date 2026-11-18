@@ -94,11 +94,38 @@ Once the vendored code is committed to git, **cloning on a new machine just work
 | `pkm build <dir>` | source directory -> `.pkm` (validates manifest + signs) |
 | `pkm publish <file>` | publish to the local registry (records sha256/signature) |
 | `pkm install [spec]` | install by name, name@version, .pkm file path, or http(s) URL; with no argument, installs everything in pkm.toml |
+| `pkm use <name>` | **cloud mode**: record a package in .pkm/cloud.json; run `python -m package_manager.cloud` to stream code into memory at import time — zero code on disk (`--latest` follows the newest release, offline falls back to the verified cache) |
+| `pkm search <query>` | search package names across the local registry and all remote sources |
+| `pkm trust list/remove` | visualize / revoke trusted publisher keys (the TOFU store) |
 | `pkm upgrade [name]` | upgrade to the latest registry version |
 | `pkm remove <name>` | remove (delete the directory + update the manifest) |
 | `pkm list` | list packages installed in this project |
 | `pkm source add/list/remove` | manage remote package sources (cloud registries serving index.json) |
+| `pkm publish <file> --verify-only` | verify and report a .pkm without storing (for PR review) |
 | `pkm registry push/pull/path` | git sync for the registry |
+
+## Streaming Mode (code lives in the cloud)
+
+Two ways to consume packages: `install` vendors the code into your project
+(buy the book); `use` streams it from the cloud into memory at import time
+(use the library):
+
+```bash
+pkm use utils                        # record intent — 30 bytes of metadata, zero code
+python -m package_manager.cloud -c "import utils; ..."   # streams, verifies, compiles in memory
+python -m package_manager.cloud      # or an interactive REPL
+```
+
+- Every streamed package passes sha256 + Ed25519 verification before compiling
+- Transitive dependencies stream automatically
+- `--latest` follows the newest release; default pins the version (with a drift notice)
+- Offline? The last verified copy in `~/.pkm/cloud-cache/` is used, signature re-checked locally
+
+## Publishing to the Hub
+
+The registry accepts PRs from anyone — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Trust is signature-based, not hub-based: merging only makes a package visible;
+installers verify the publisher's key themselves (TOFU).
 
 ## The `.pkm` Package Format
 
