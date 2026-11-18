@@ -58,6 +58,16 @@ pkm registry push             # 配好 remote 后推到 GitHub 私库，跨机�
 ```bash
 cd myapp
 pkm install mylib@1.0.0       # 验签 -> 解压到 ./mylib/ -> 完成
+
+# 三种取货方式（安装前一律验签）：
+pkm install mylib                              # 本地 registry 优先
+pkm install ~/Downloads/mylib-1.0.0.pkm        # 独立 .pkm 文件（微信/网盘传来的）
+pkm install https://example.com/mylib-1.0.0.pkm  # 直接装 URL
+
+# 远程源回退：订阅任何提供 index.json 的云端 registry
+pkm source add hub https://yifeihuang-dev.github.io/pkm-registry
+pkm source list
+pkm install otherlib          # 本地没有？自动从 hub 拉取
 ```
 
 ```python
@@ -83,10 +93,11 @@ vendor 目录随项目提交 git 后，**换机器 clone 下来直接能跑**，
 | `pkm keys` | 查看已有密钥与指纹 |
 | `pkm build <目录>` | 源码目录 -> `.pkm`（校验清单 + 签名） |
 | `pkm publish <文件>` | 发布到本地 registry（记录 sha256/签名） |
-| `pkm install [名@版本]` | 安装（验签 + 解到项目根）；无参数则按项目 pkm.toml 装齐 |
+| `pkm install [spec]` | 按名、名@版本、.pkm 文件路径或 http(s) URL 安装；无参数则按项目 pkm.toml 装齐 |
 | `pkm upgrade [名]` | 升级到 registry 最新版 |
 | `pkm remove <名>` | 移除（删目录 + 更新清单） |
 | `pkm list` | 列出项目已安装的包 |
+| `pkm source add/list/remove` | 管理远程包源（提供 index.json 的云端 registry） |
 | `pkm registry push/pull/path` | registry 的 git 同步 |
 
 ## `.pkm` 包格式

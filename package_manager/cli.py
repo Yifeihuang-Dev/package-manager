@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from . import pkging, project, registry, signing
+from . import pkging, project, registry, signing, sources
 from .errors import PkmError
 
 
@@ -50,6 +50,19 @@ def _cmd_registry(args):
         registry.git_pull()
 
 
+def _cmd_source(args):
+    if args.op == "add":
+        if not args.name or not args.url:
+            raise PkmError("usage: pkm source add <name> <url>")
+        sources.add(args.name, args.url)
+    elif args.op == "list":
+        sources.list_sources()
+    elif args.op == "remove":
+        if not args.name:
+            raise PkmError("usage: pkm source remove <name>")
+        sources.remove(args.name)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="pkm", description="pkm — a personal vendoring-style Python package manager"
@@ -72,9 +85,16 @@ def main(argv=None) -> int:
     p.set_defaults(func=_cmd_publish)
 
     p = sub.add_parser("install", help="install a package: verify signature -> extract into project root -> importable")
-    p.add_argument("spec", nargs="?", default=None, help="name or name@version; omit to install everything in pkm.toml")
+    p.add_argument("spec", nargs="?", default=None,
+                   help="name, name@version, path to a .pkm file, or an http(s) URL; omit to install everything in pkm.toml")
     p.add_argument("--force", action="store_true", help="overwrite existing directories of the same name")
     p.set_defaults(func=_cmd_install)
+
+    p = sub.add_parser("source", help="manage remote package sources (cloud registries): add | list | remove")
+    p.add_argument("op", choices=["add", "list", "remove"])
+    p.add_argument("name", nargs="?", default=None, help="source name (for add/remove)")
+    p.add_argument("url", nargs="?", default=None, help="source URL serving index.json (for add)")
+    p.set_defaults(func=_cmd_source)
 
     p = sub.add_parser("upgrade", help="upgrade to the latest registry version")
     p.add_argument("name", nargs="?", default=None, help="package name; omit to upgrade all")

@@ -6,7 +6,7 @@ import os
 import sys
 
 from . import ed25519
-from .config import KEYS_DIR, KNOWN_KEYS_FILE
+from .config import KEYS_DIR, KNOWN_KEYS_FILE, REGISTRY_INDEX
 from .errors import PkmError
 from .util import load_json, save_json
 
@@ -110,11 +110,30 @@ def keys_list() -> None:
 
 def pubkey_b64_for(kid: str) -> str:
     """Find the public key for a key_id: local key first, then the trusted list."""
-    if _key_file().exists():
-        pub = ed25519.public_key(load_seed())
-        if key_id(pub) == kid:
-            return base64.b64encode(pub).decode()
+    pub = lookup_pubkey(kid, include_local_key=True)
+    if pub is None:
+        raise PkmError(f"no public key found for signing key {kid}; cannot verify")
+    return pub
+
+
+def lookup_pubkey(kid: str, include_local_key: bool = False):
+    """Best-effort public key lookup; returns None when unknown.
+
+    Order: local keypair (optional) -> TOFU known_keys -> local registry index.
+    """
+    if include_local_key and _key_file().exists():
+        try:
+            pub = ed25519.public_key(load_seed())
+            if key_id(pub) == kid:
+                return base64.b64encode(pub).decode()
+        except PkmError:
+            pass
     known = load_json(KNOWN_KEYS_FILE, {})
     if kid in known:
         return known[kid]
-    raise PkmError(f"no public key found for signing key {kid}; cannot verify")
+    idx = load_json(REGISTRY_INDEX, {})
+    for versions in idx.get("packages", {}).values():
+        for entry in versions.values():
+            if entry.get("key_id") == kid and entry.get("pubkey"):
+                return entry["pubkey"]
+    return None

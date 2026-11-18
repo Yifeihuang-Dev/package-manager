@@ -58,6 +58,16 @@ pkm registry push             # after configuring a remote, sync to a private Gi
 ```bash
 cd myapp
 pkm install mylib@1.0.0       # verify signature -> extract to ./mylib/ -> done
+
+# three ways to fetch a package (all signature-verified before install):
+pkm install mylib                              # local registry first
+pkm install ~/Downloads/mylib-1.0.0.pkm        # a standalone .pkm file (e.g. shared via chat/drive)
+pkm install https://example.com/mylib-1.0.0.pkm  # straight from a URL
+
+# remote registry fallback: subscribe to any cloud registry serving index.json
+pkm source add hub https://yifeihuang-dev.github.io/pkm-registry
+pkm source list
+pkm install otherlib          # not found locally? fetched from "hub" automatically
 ```
 
 ```python
@@ -83,10 +93,11 @@ Once the vendored code is committed to git, **cloning on a new machine just work
 | `pkm keys` | list existing keys and fingerprints |
 | `pkm build <dir>` | source directory -> `.pkm` (validates manifest + signs) |
 | `pkm publish <file>` | publish to the local registry (records sha256/signature) |
-| `pkm install [name@version]` | install (verify + extract into project root); with no argument, installs everything in pkm.toml |
+| `pkm install [spec]` | install by name, name@version, .pkm file path, or http(s) URL; with no argument, installs everything in pkm.toml |
 | `pkm upgrade [name]` | upgrade to the latest registry version |
 | `pkm remove <name>` | remove (delete the directory + update the manifest) |
 | `pkm list` | list packages installed in this project |
+| `pkm source add/list/remove` | manage remote package sources (cloud registries serving index.json) |
 | `pkm registry push/pull/path` | git sync for the registry |
 
 ## The `.pkm` Package Format

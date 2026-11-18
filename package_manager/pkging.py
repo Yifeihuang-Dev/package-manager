@@ -46,10 +46,15 @@ def digest_from(data: dict) -> bytes:
 
 
 def parse_signature(text: str):
+    """Returns (signature_b64, key_id, embedded_pubkey_b64_or_None).
+
+    The 4th field (embedded public key, added in 0.2.0) lets standalone .pkm
+    files / URL installs verify signatures without a registry index.
+    """
     parts = text.split()
-    if len(parts) != 3 or parts[0] != "ed25519":
+    if len(parts) not in (3, 4) or parts[0] != "ed25519":
         raise PkmError(f"malformed SIGNATURE: {text[:60]!r}")
-    return parts[2], parts[1]  # (signature_b64, key_id)
+    return parts[2], parts[1], (parts[3] if len(parts) == 4 else None)
 
 
 def read_manifest_text(path: Path) -> str:
@@ -93,8 +98,9 @@ def build(src: Path, out=None):
         data[arcname] = p.read_bytes()
 
     digest = digest_from(data)
-    sig_b64, kid, _ = signing.sign_bytes(digest)
-    data["SIGNATURE"] = f"ed25519 {kid} {sig_b64}".encode()
+    sig_b64, kid, pub_b64 = signing.sign_bytes(digest)
+    # 4th field = embedded public key: standalone files/URL installs can verify without an index
+    data["SIGNATURE"] = f"ed25519 {kid} {sig_b64} {pub_b64}".encode()
 
     if out:
         out_path = Path(out)

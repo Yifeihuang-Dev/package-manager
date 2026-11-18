@@ -8,8 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import pkging, signing
-from .config import REGISTRY_DIR, REGISTRY_INDEX, REGISTRY_PACKAGES
+from . import pkging, signing, sources
+from .config import REGISTRY_DIR, REGISTRY_INDEX, REGISTRY_PACKAGES, REMOTE_CACHE
 from .errors import PkmError
 from .manifest import parse_manifest, parse_version
 from .util import load_json, now, save_json
@@ -35,7 +35,7 @@ def publish(pkm_path: Path) -> None:
             raise PkmError(f"{pkm_path.name} is missing {required}; build with pkm build (adds a signature)")
 
     mf = parse_manifest(data["pkm.toml"].decode())
-    sig_b64, kid = pkging.parse_signature(data["SIGNATURE"].decode())
+    sig_b64, kid, _embedded_pub = pkging.parse_signature(data["SIGNATURE"].decode())
     digest = pkging.digest_from(data)
 
     pub_b64 = signing.pubkey_b64_for(kid)
@@ -73,21 +73,47 @@ def _file_sha(path: Path) -> str:
 
 
 def get(name: str, version=None):
-    """Returns (entry, file path). version=None picks the latest."""
-    idx = load_index()
-    versions = idx["packages"].get(name)
-    if not versions:
-        raise PkmError(f"package {name} not found in registry (run pkm build && pkm publish first)")
-    if version is None:
-        version = max(versions, key=lambda v: parse_version(v))
-    if version not in versions:
-        available = ", ".join(sorted(versions))
-        raise PkmError(f"{name} has no {version} version. Available: {available}")
-    entry = versions[version]
-    path = REGISTRY_PACKAGES / name / entry["file"]
-    if not path.exists():
-        raise PkmError(f"registry file missing (index/store out of sync): {path}")
-    return entry, path
+    """Returns (entry, file path). version=None picks the latest.
+
+    Local registry first; on a miss, falls back to configured remote sources
+    (pkm source add), downloading the package into the remote cache.
+    """
+    versions = load_index()["packages"].get(name)
+    if versions and (version is None or version in versions):
+        if version is None:
+            version = max(versions, key=lambda v: parse_version(v))
+        entry = versions[version]
+        path = REGISTRY_PACKAGES / name / entry["file"]
+        if path.exists():
+            return entry, path
+
+    # remote fallback: try each configured source in turn
+    all_sources = sources.load_sources()
+    local_msg = f"package {name} not found in local registry (run pkm build && pkm publish first)"
+    last_err = PkmError(local_msg)
+    for sname, base in sorted(all_sources.items()):
+        try:
+            idx = sources.fetch_json(f"{base}/index.json")
+            rversions = idx.get("packages", {}).get(name)
+            if not rversions:
+                last_err = PkmError(f"package {name} not found in source {sname}")
+                continue
+            ver = version or max(rversions, key=lambda v: parse_version(v))
+            if ver not in rversions:
+                last_err = PkmError(f"{name} has no {ver} version in source {sname}. Available: {', '.join(sorted(rversions))}")
+                continue
+            entry = rversions[ver]
+            fname = entry["file"]
+            file_url = fname if fname.startswith(("http://", "https://")) else f"{base}/packages/{name}/{fname}"
+            dest_dir = REMOTE_CACHE / name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / f"{name}-{ver}.pkm"
+            dest.write_bytes(sources.fetch(file_url))
+            print(f"✓ fetched {name}@{ver} from source {sname}")
+            return entry, dest
+        except PkmError as e:
+            last_err = e
+    raise last_err
 
 
 def _git_commit(msg: str) -> None:

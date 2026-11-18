@@ -10,7 +10,7 @@ import shutil
 import tomllib
 from pathlib import Path
 
-from . import pkging, registry, signing
+from . import pkging, registry, signing, sources
 from .errors import PkmError
 from .manifest import parse_manifest, parse_spec, parse_version
 from .toml_edit import remove_dependency, set_dependency
@@ -56,23 +56,32 @@ def _project_deps(root: Path) -> dict:
 
 # ---------- verification and resolution ----------
 
-def _verify_package(path: Path, entry: dict) -> None:
-    """Double gate before installing: file sha256 + signature verification + TOFU key record."""
+def _verify_package(path: Path, entry: dict | None = None) -> None:
+    """Double gate before installing: file sha256 (when an index entry provides one)
+    + signature verification (pubkey from the index entry, embedded in SIGNATURE,
+    or the TOFU trusted store) + TOFU key record."""
     import hashlib
 
-    actual = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-    expected = entry.get("sha256")
+    path = Path(path)
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    expected = (entry or {}).get("sha256")
     if expected and actual != expected:
-        raise PkmError(f"{Path(path).name} checksum mismatch; the file may have been tampered with")
+        raise PkmError(f"{path.name} checksum mismatch; the file may have been tampered with")
 
     data = pkging.tar_files(path)
     if "SIGNATURE" not in data:
-        raise PkmError(f"{Path(path).name} has no signature; refusing to install")
-    sig_b64, kid = pkging.parse_signature(data["SIGNATURE"].decode())
+        raise PkmError(f"{path.name} has no signature; refusing to install")
+    sig_b64, kid, embedded_pub = pkging.parse_signature(data["SIGNATURE"].decode())
+    pub_b64 = (entry or {}).get("pubkey") or embedded_pub or signing.lookup_pubkey(kid)
+    if not pub_b64:
+        raise PkmError(
+            f"cannot verify {path.name}: unknown key {kid} and no embedded public key; "
+            "rebuild with pkm >= 0.2.0 (build embeds the pubkey) or install via a registry index"
+        )
     digest = pkging.digest_from(data)
-    if not signing.verify_bytes(entry["pubkey"], digest, sig_b64):
-        raise PkmError(f"{Path(path).name} signature verification failed; refusing to install")
-    signing.tofu_check(kid, entry["pubkey"])
+    if not signing.verify_bytes(pub_b64, digest, sig_b64):
+        raise PkmError(f"{path.name} signature verification failed; refusing to install")
+    signing.tofu_check(kid, pub_b64)
 
 
 def _conflict_error(name: str, reqs) -> PkmError:
@@ -120,8 +129,18 @@ def _resolve(specs):
 
 # ---------- the four consumer commands ----------
 
+def _is_path_or_url(spec: str) -> bool:
+    return spec.startswith(("http://", "https://")) or spec.endswith(".pkm")
+
+
 def install(spec=None, force: bool = False) -> None:
     root = _root()
+
+    # A .pkm file path or http(s) URL installs standalone (signature-verified)
+    if spec and _is_path_or_url(spec):
+        _install_direct(spec, root, force)
+        return
+
     # Always resolve together with ALL deps already in the project manifest:
     # otherwise a new package's transitive deps would bypass existing version
     # constraints, causing silent downgrades / unreported conflicts.
@@ -133,9 +152,70 @@ def install(spec=None, force: bool = False) -> None:
         deps[name] = ver
     if not deps:
         raise PkmError("no package name given, and the current pkm.toml has no [dependencies]")
-    specs = list(deps.items())
 
-    resolved = _resolve(specs)
+    resolved = _resolve(list(deps.items()))
+    _apply(root, resolved, force)
+
+
+def _install_direct(spec: str, root: Path, force: bool) -> None:
+    """Install a standalone .pkm (local file or http(s) URL): verify -> extract -> record."""
+    import hashlib
+    import tempfile
+
+    cleanup = None
+    if spec.startswith(("http://", "https://")):
+        staging_root = root / META_DIR
+        staging_root.mkdir(parents=True, exist_ok=True)  # fresh project may not have it yet
+        staging = Path(tempfile.mkdtemp(prefix="download-", dir=staging_root))
+        fname = spec.split("?")[0].rstrip("/").split("/")[-1] or "package"
+        if not fname.endswith(".pkm"):
+            fname += ".pkm"
+        path = staging / fname
+        path.write_bytes(sources.fetch(spec))
+        cleanup = staging
+        print(f"✓ downloaded {fname}")
+    else:
+        path = Path(spec).expanduser().resolve()
+        if not path.exists():
+            raise PkmError(f"file not found: {spec}")
+
+    try:
+        _verify_package(path, entry=None)
+        mf = parse_manifest(pkging.read_manifest_text(path))
+        if mf.name in mf.dependencies:
+            raise PkmError(f"{mf.name} cannot depend on itself")
+
+        file_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+        data = pkging.tar_files(path)
+        _, kid, _ = pkging.parse_signature(data["SIGNATURE"].decode())
+
+        # guard against a conflicting pin in the project manifest
+        prev = _project_deps(root).get(mf.name)
+        if prev and prev != mf.version:
+            raise _conflict_error(mf.name, [
+                (mf.version, [mf.name]),
+                (prev, ["current pkm.toml"]),
+            ])
+
+        direct = {
+            "version": mf.version,
+            "entry": {"sha256": file_sha, "key_id": kid},
+            "path": path,
+            "manifest": mf,
+        }
+        # resolve the package's own deps together with the project's existing pins
+        deps = {**_project_deps(root), **mf.dependencies}
+        deps.pop(mf.name, None)
+        resolved = _resolve(list(deps.items())) if deps else {}
+        resolved[mf.name] = direct
+        _apply(root, resolved, force)
+    finally:
+        if cleanup:
+            shutil.rmtree(cleanup, ignore_errors=True)
+
+
+def _apply(root: Path, resolved: dict, force: bool) -> None:
+    """Extract every resolved package into the project root and record metadata."""
     installed = _load_installed(root)
 
     for name in sorted(resolved):
