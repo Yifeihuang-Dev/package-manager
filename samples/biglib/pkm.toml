@@ -1,0 +1,4 @@
+[package]
+name = "biglib"
+version = "1.0.0"
+description = "大件演示包：文本/数值工具 + 约 20MB 内置数据资源（测试管线吞吐）"

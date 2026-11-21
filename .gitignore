@@ -8,3 +8,6 @@ dist/
 .DS_Store
 .venv/
 venv/
+samples/biglib/biglib/data/*.txt
+samples/biglib/biglib/data/*.json
+samples/biglib/biglib/data/*.csv
